@@ -1,0 +1,16 @@
+[gateway:gateway]
+programs=iptables-gateway
+
+[program:gateway]
+directory=/home/gateway/iptables-gateway                    ; Location of application
+environment=
+    MANIPULATOR_AUTH="{{ MANIPULATOR_AUTH }}",
+    KEA_CONF="/etc/kea/kea-dhcp4.conf"
+command=/usr/bin/node /home/gateway/iptables-gateway/build/app.js                   ; The command to execute
+autostart=true                           ; Start this application when supervisord starts
+autorestart=true                         ; Restart this application if it crashes
+stderr_logfile=/home/gateway/iptables-gateway/logs/app.err.log  ; Make sure this directory exists
+stdout_logfile=/home/gateway/iptables-gateway/logs/app.log      ; Make sure this directory exists
+stopsignal=INT                           ; Signal sent to the application when halting
+user=gateway                           ; setuid to this UNIX account to run the program
+

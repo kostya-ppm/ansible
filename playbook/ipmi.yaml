@@ -1,0 +1,169 @@
+---
+- name: Install ipmi-gateway on Centos 8
+  hosts: all
+  become: yes
+  vars:
+    allow_world_readable_tmpfiles: true
+    services_disable:
+      - firewalld
+    server_ip: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
+    iface: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['interface'] }}"
+    dhcp_subnet: 192.168.70.0/24
+    dhcp_vlan: 70
+    dhcp_iface_ip: 192.168.70.1
+    services:
+      - supervisord
+      - nginx
+      - kea-dhcp4
+      - iptables
+    MANIPULATOR_AUTH: 'cb8NW3NdfC3iPM'
+ 
+  tasks:
+
+  - name: Stop and disable services "{{ services_disable }}"
+    ansible.builtin.systemd:
+      name: "{{ item }}"
+      state: stopped
+      enabled: no
+    loop: "{{ services_disable }}"
+
+  - name: Install epel-release
+    ansible.builtin.yum:
+      name:
+        - epel-release
+      state: present
+
+  - name: Use dns to select version  of nodejs
+    command: dnf module enable nodejs:16 -y
+
+  - name: Install a list of packages
+    ansible.builtin.yum:
+      name:
+        - git, nodejs, kea, conntrack-tools, iptables, supervisor, nginx, iptables-services, python3-cryptography
+      state: present
+
+  - name: Create dir /etc/nginx/ssl /etc/nginx/ssl/certificate /etc/nginx/ssl/certificate/key
+    ansible.builtin.file:
+      path: "{{ item }}"
+      state: directory
+      mode: '0755'
+    loop:
+      - /etc/nginx/ssl
+      - /etc/nginx/ssl/certificate
+      - /etc/nginx/ssl/certificate/key
+
+  - name: create gateway group
+    ansible.builtin.group:
+      name: gateway
+      state: present
+
+  - name: Add user gateway
+    ansible.builtin.user:
+      name: gateway
+      group: gateway
+
+  - name: Template a file to /etc/kea/kea-dhcp4.conf
+    template:
+      src: ipmi/kea-dhcp4.conf.j2
+      dest: /etc/kea/kea-dhcp4.conf
+      owner: gateway
+      group: gateway
+      mode: '0644'
+
+  - name: Template a file to /etc/supervisord.d/iptables-gateway.ini
+    template:
+      src: ipmi/iptables-gateway.ini.j2
+      dest: /etc/supervisord.d/iptables-gateway.ini
+      owner: root
+      group: root
+      mode: '0644'
+
+  - name: Template a file to /etc/nginx/nginx.conf
+    template:
+      src: ipmi/nginx.conf.j2
+      dest: /etc/nginx/nginx.conf
+      owner: root
+      group: root
+      mode: '0644'
+
+  - name: Template a file to /etc/nginx/conf.d/iptables-gateway.conf_disable
+    template:
+      src: ipmi/iptables-gateway.conf_disable.j2
+      dest: /etc/nginx/conf.d/iptables-gateway.conf_disable
+      owner: root
+      group: root
+      mode: '0644'
+
+  - name: Template a file to /etc/nginx/conf.d/iptables-gateway-ssl.conf
+    template:
+      src: ipmi/iptables-gateway-ssl.conf.j2
+      dest: /etc/nginx/conf.d/iptables-gateway-ssl.conf
+      owner: root
+      group: root
+      mode: '0644'
+
+
+  - name: Read-write git checkout from github
+    ansible.builtin.git:
+      repo: https://konstantin.g.romanov%40gmail.com:kec_BEWN2prut3birn@gitlab.brainq.com/ishosting/iptables-utils/iptables-gateway
+      dest: /home/gateway/iptables-gateway
+      force: yes
+    become: yes
+    become_user: gateway
+
+  - name: Update packages based on package.json to their latest version.
+    community.general.npm:
+      path: /home/gateway/iptables-gateway
+      state: latest
+    become: yes
+    become_user: gateway
+
+  - name: Run npm build
+    command: npm run build
+    become: yes
+    become_user: gatewaty
+    args:
+      chdir: /home/gateway/iptables-gateway
+#      creates: /home/gateway/iptables-gateway/build/app.js
+
+
+  - name: Ensure private key is present
+    community.crypto.openssl_privatekey:
+      path: /etc/nginx/ssl/certificate/key/iptables-gateway.key
+
+  - name: Ensure self-signed cert is present
+    community.crypto.x509_certificate:
+      path: /etc/nginx/ssl/certificate/iptables-gateway.crt
+      privatekey_path: /etc/nginx/ssl/certificate/key/iptables-gateway.key
+      provider: selfsigned
+
+  - name: net.ipv4.conf.all.forwarding=1
+    ansible.posix.sysctl:
+      name: net.ipv4.conf.all.forwarding
+      value: '1'
+      sysctl_set: yes
+      state: present
+      reload: yes
+
+  - name: flush iptables rules
+    ansible.builtin.iptables:
+      flush: yes
+
+  - name: DROP connections to port 8081 on external inface
+    ansible.builtin.iptables:
+      chain: INPUT
+      in_interface: "{{ iface }}"
+      protocol: tcp
+      destination_ports: 8081
+      jump: DROP
+
+  - name: run service iptables save
+    command: service iptables save
+
+  - name: Enable and start services "{{ services }}"
+    ansible.builtin.systemd:
+      name: "{{ item }}"
+      state: started
+      enabled: yes
+    loop: "{{ services }}"
+...

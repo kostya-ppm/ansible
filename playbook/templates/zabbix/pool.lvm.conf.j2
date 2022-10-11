@@ -1,0 +1,2 @@
+UserParameter=pool.lvm.used[*],/usr/bin/sudo /sbin/lvs /dev/'$1' --noheadings --nosuffix --units b | /usr/bin/awk '{ print $$4/100*$$5 }'
+UserParameter=pool.lvm.usedpercent[*],/usr/bin/sudo /sbin/lvs /dev/'$1' --noheadings --nosuffix --units b | /usr/bin/awk '{ print $$5 }'
