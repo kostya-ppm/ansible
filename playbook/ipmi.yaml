@@ -105,7 +105,7 @@
 
   - name: Read-write git checkout from github
     ansible.builtin.git:
-      repo: https://konstantin.g.romanov%40gmail.com:kec_BEWN2prut3birn@gitlab.brainq.com/ishosting/iptables-utils/iptables-gateway
+      repo: https://username:password@gitlab.brainq.com/ishosting/iptables-utils/iptables-gateway
       dest: /home/gateway/iptables-gateway
       force: yes
     become: yes
