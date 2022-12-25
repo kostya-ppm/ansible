@@ -64,7 +64,7 @@
 
   - name: Template a file to /etc/kea/kea-dhcp4.conf
     template:
-      src: ipmi/kea-dhcp4.conf.j2
+      src: ipmi-gw_centos/kea-dhcp4.conf.j2
       dest: /etc/kea/kea-dhcp4.conf
       owner: gateway
       group: gateway
@@ -72,7 +72,7 @@
 
   - name: Template a file to /etc/supervisord.d/iptables-gateway.ini
     template:
-      src: ipmi/iptables-gateway.ini.j2
+      src: ipmi-gw_centos/iptables-gateway.ini.j2
       dest: /etc/supervisord.d/iptables-gateway.ini
       owner: root
       group: root
@@ -80,7 +80,7 @@
 
   - name: Template a file to /etc/nginx/nginx.conf
     template:
-      src: ipmi/nginx.conf.j2
+      src: ipmi-gw_centos/nginx.conf.j2
       dest: /etc/nginx/nginx.conf
       owner: root
       group: root
@@ -88,7 +88,7 @@
 
   - name: Template a file to /etc/nginx/conf.d/iptables-gateway.conf_disable
     template:
-      src: ipmi/iptables-gateway.conf_disable.j2
+      src: ipmi-gw_centos/iptables-gateway.conf_disable.j2
       dest: /etc/nginx/conf.d/iptables-gateway.conf_disable
       owner: root
       group: root
@@ -96,7 +96,7 @@
 
   - name: Template a file to /etc/nginx/conf.d/iptables-gateway-ssl.conf
     template:
-      src: ipmi/iptables-gateway-ssl.conf.j2
+      src: ipmi-gw_centos/iptables-gateway-ssl.conf.j2
       dest: /etc/nginx/conf.d/iptables-gateway-ssl.conf
       owner: root
       group: root

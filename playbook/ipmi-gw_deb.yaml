@@ -1,0 +1,177 @@
+#debian 11 iptables-gateway install
+- hosts: servers
+  become: true
+  become_user: root
+  vars:
+    gituser: "konstantin.g.romanov@gmail.com"
+    gitpassword: "kec_BEWN2prut3birn"
+    MANIPULATOR_AUTH: "cb8NW3NdfC3iPM"
+    server_ip: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
+    iface: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['interface'] }}"
+    dhcp_subnet: 192.168.70.0/24
+    dhcp_vlan: 70
+    dhcp_iface_ip: 192.168.70.1
+
+  tasks:
+    - name: Update apt repo and cache
+      apt: update_cache=yes force_apt_get=yes
+
+    - name: apt-mark hold grub-pc
+      shell: apt-mark hold grub-pc
+
+    - name: Upgrade all packages
+      apt: upgrade=dist force_apt_get=yes
+
+    - name: Check if a reboot is needed
+      register: reboot_required_file
+      stat: path=/var/run/reboot-required get_md5=no
+
+    - name: Reboot debian server
+      reboot:
+        msg: "Reboot initiated by Ansible for updates"
+        connect_timeout: 5
+        reboot_timeout: 300
+        pre_reboot_delay: 0
+        post_reboot_delay: 30
+        test_command: uptime
+      when: reboot_required_file.stat.exists
+
+    - name: Install curl and gpg
+      ansible.builtin.apt:
+        pkg:
+        - gpg
+        - curl
+
+    - name: One way to avoid apt_key once it is removed from your distro
+      block:
+        - name: install nodejs repo pgp key
+          shell: curl -fsSL https://deb.nodesource.com/gpgkey/nodesource.gpg.key | gpg --dearmor | tee /usr/share/keyrings/nodesource.gpg
+
+        - name: "Ansible | Creating a nodejs 18.x repo"
+          copy:
+            dest: "/etc/apt/sources.list.d/nodesource.list"
+            content: |
+              deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_18.x bullseye main
+              deb-src  [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_18.x bullseye main
+
+
+    - name: install kea repo
+      shell: curl -1sLf  'https://dl.cloudsmith.io/public/isc/kea-2-2/setup.deb.sh' | bash
+
+
+    - name: Install packages
+      ansible.builtin.apt:
+        pkg:
+        - nodejs
+        - iptables
+        - isc-kea-dhcp4-server
+        - supervisor
+        - nginx
+        - git
+        - sudo
+
+
+    - name: npm install -g typescript npm
+      shell:  npm install -g typescript npm
+
+
+    - name: Add the user 'gateway'
+      ansible.builtin.user:
+        name: gateway
+
+    - name: Clone iptables-gateway repo
+      git:
+        repo: 'https://{{ gituser | urlencode }}:{{ gitpassword | urlencode }}@gitlab.brainq.com/ishosting/iptables-utils/iptables-gateway'
+        dest: ~/iptables-gateway
+      become: yes
+      become_user: gateway
+
+    - name: npm install
+      shell: npm install
+      args:
+        chdir: ~/iptables-gateway
+      become: yes
+      become_user: gateway
+
+    - name: npm run build
+      shell: npm run build
+      args:
+        chdir: ~/iptables-gateway
+      become: yes
+      become_user: gateway
+
+    - name: "Ansible | Creating a /etc/sudoers.d/gateway"
+      copy: 
+        dest: "/etc/sudoers.d/gateway"
+        content: |
+          gateway  ALL=(ALL) NOPASSWD: ALL
+
+    - name: "Ansible | Creating a /etc/supervisor/conf.d/iptables-gateway.conf"
+      copy: 
+        dest: "/etc/supervisor/conf.d/iptables-gateway.conf"
+        content: |
+          [gateway:gateway]
+          programs=iptables-gateway
+          [program:gateway]
+          directory=/home/gateway/iptables-gateway                    ; Location of application
+          environment=
+              MANIPULATOR_AUTH="{{ MANIPULATOR_AUTH }}",
+              KEA_CONF="/etc/kea/kea-dhcp4.conf"
+          command=/usr/bin/node /home/gateway/iptables-gateway/build/app.js                   ; The command to execute
+          autostart=true                           ; Start this application when supervisord starts
+          autorestart=true                         ; Restart this application if it crashes
+          stderr_logfile=/home/gateway/iptables-gateway/logs/app.err.log  ; Make sure this directory exists
+          stdout_logfile=/home/gateway/iptables-gateway/logs/app.log      ; Make sure this directory exists
+          stopsignal=INT                           ; Signal sent to the application when halting
+          user=gateway                           ; setuid to this UNIX account to run the program
+
+
+    - name: "Ansible | Creating a /etc/nginx/conf.d/iptables-gateway.conf"
+      copy:
+        dest: "/etc/nginx/conf.d/iptables-gateway.conf"
+        content: |
+          server {
+             listen {{ server_ip }}:3580;
+           location / {
+                  proxy_pass http://localhost:8081;
+                  proxy_set_header        Host $host;
+                  proxy_set_header        X-Real-IP $remote_addr;
+                  proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header        X-Forwarded-Proto $scheme;
+          }
+          }
+
+    - name: Remove /etc/nginx/sites-enabled/default
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Template a file to /etc/kea/kea-dhcp4.conf
+      template:
+        src: templates/ipmi-gw_deb/kea-dhcp4.conf.j2
+        dest: /etc/kea/kea-dhcp4.conf
+        owner: root
+        group: root
+        mode: '0644'
+
+
+    - name: Enable services and ensure it is not masked
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: yes
+        state: started
+        masked: no
+      with_items:
+        - supervisor
+        - isc-kea-dhcp4-server
+        - nginx
+
+    - name: supervisorctl reload
+      shell: supervisorctl reload
+
+    - name: reload nginx
+      ansible.builtin.systemd:
+        state: restarted
+        daemon_reload: yes
+        name: nginx
+
